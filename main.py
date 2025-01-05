@@ -1,6 +1,8 @@
 import asyncio
 import logging
 import sys
+import json
+from datetime import datetime
 from os import getenv
 
 from aiohttp import web
@@ -31,6 +33,34 @@ async def start_aiohttp_app():
     await site.start()
     logging.info("Health check server started on http://0.0.0.0:8000/health")
 
+def log_message_to_json(message: Message):
+    # Prepare the data for logging
+    log_data = {
+        "message_id": message.message_id,
+        "date": message.date.strftime("%Y-%m-%d %H:%M:%S %Z"),
+        "chat": {
+            "chat_id": message.chat.id,
+            "chat_type": message.chat.type,
+            "username": message.chat.username,
+            "first_name": message.chat.first_name,
+            "last_name": message.chat.last_name,
+        },
+        "user": {
+            "user_id": message.from_user.id,
+            "is_bot": message.from_user.is_bot,
+            "first_name": message.from_user.first_name,
+            "last_name": message.from_user.last_name,
+            "username": message.from_user.username,
+            "language_code": message.from_user.language_code,
+        },
+        "text": message.text,
+    }
+
+    # Convert to JSON
+    json_log = json.dumps(log_data, ensure_ascii=False, separators=(',', ':'))
+    
+    # Log to console (or save to a file)
+    logging.info("message log: %s", json_log)
 
 @dp.message(CommandStart())
 async def command_start_handler(message: Message) -> None:
@@ -42,7 +72,9 @@ async def command_start_handler(message: Message) -> None:
     # and the target chat will be passed to :ref:`aiogram.methods.send_message.SendMessage`
     # method automatically or call API method directly via
     # Bot instance: `bot.send_message(chat_id=message.chat.id, ...)`
+    log_message_to_json(message)
     await message.answer(f"Hello, {html.bold(message.from_user.full_name)}!")
+
 
 
 @dp.message()
@@ -54,6 +86,7 @@ async def echo_handler(message: Message) -> None:
     """
     try:
         # Send a copy of the received message
+        log_message_to_json(message)
         await message.send_copy(chat_id=message.chat.id)
     except TypeError:
         # But not all the types is supported to be copied so need to handle it
