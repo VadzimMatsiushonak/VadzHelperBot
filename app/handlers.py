@@ -369,6 +369,22 @@ async def process_todo(user: User, todo_text: str, message: Message) -> None:
     await message.answer(f"Todo created: {todo.text}")
 
 
+@dp.message(Command("clear"))
+async def clear_screen(message: Message) -> None:
+    """Handles the /clear command to clear the chat screen.
+    
+    Args:
+        message (Message): The message containing the clear command
+        
+    Returns:
+        None
+    """
+    # Using unicode character that creates more space
+    clear_text = ("⠀\n" * 50) + "💫 Screen cleared!"
+    await message.answer(clear_text)
+    logging.info("Cleared screen for user %s", message.from_user.id)
+
+
 @dp.message()
 async def handle_other_messages(message: Message) -> None:
     """Handles any messages that don't match other handlers.

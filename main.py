@@ -22,6 +22,7 @@ async def init_bot() -> Bot:
         BotCommand(command="/todo", description="Create a new todo"),
         BotCommand(command="/get_todos", description="Get list of your todos"),
         BotCommand(command="/get_users", description="Get list of users"),
+        BotCommand(command="/clear", description="Clear chat screen"),
         # BotCommand(command="/post_users", description="Create new user")
     ]
     await bot.set_my_commands(commands)
