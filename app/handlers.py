@@ -3,7 +3,7 @@ import json
 from datetime import datetime, timedelta
 from aiogram import Dispatcher, F, html
 from aiogram.filters import CommandStart
-from aiogram.types import Message
+from aiogram.types import Message, InlineKeyboardMarkup, InlineKeyboardButton
 from aiogram.filters import Command, CommandObject
 from app.database import User, ActiveCommand, Todo, TodoStatus
 
@@ -126,34 +126,192 @@ async def post_users(message: Message, command: CommandObject) -> None:
     logging.info("Sent success message for new user creation to user %s", message.from_user.id)
 
 @dp.message(F.text, Command("get_todos"))
-async def get_todos(message: Message):
+async def get_todos(message: Message, command: CommandObject):
     """Handles the `/get_todos` command to retrieve all todos for a user.
     
     Args:
         message (Message): The message containing the get_todos command
+        command (CommandObject): Command object containing page number argument
         
     Returns:
         None
     """
     logging.info("Received /get_todos command from user %s", message.from_user.id)
     
+    # Get page number from command args, default to 1 if not provided
+    page = 1
+    if command.args:
+        try:
+            page = int(command.args)
+            if page < 1:
+                page = 1
+        except ValueError:
+            page = 1
+            
+    await show_todos_page(message.from_user.id, page, message=message)
+
+
+async def show_todos_page(user_id: int, page: int, message=None, callback_query=None):
+    """Common method to show todos page either from command or callback.
+    
+    Args:
+        user_id (int): Telegram user ID
+        page (int): Page number to show
+        message (Message, optional): Message object for command response
+        callback_query (CallbackQuery, optional): Callback query for navigation
+    """
+    items_per_page = 5
+    offset = (page - 1) * items_per_page
+    
     try:
-        user = User.get(User.id == message.from_user.id)
-        todos = Todo.select().where(Todo.user == user)
+        user = User.get(User.id == user_id)
         
-        todos_list = [{
-            "id": todo.id,
-            "text": todo.text,
-            "status": todo.status,
-            "due_date": todo.due_date.strftime("%Y-%m-%d %H:%M:%S")
-        } for todo in todos]
+        # Get total count for pagination
+        total_todos = Todo.select().where(Todo.user == user).count()
         
-        await message.answer(f"Your todos:\n{json.dumps(todos_list, indent=2)}")
-        logging.info("Sent todos list to user %s. Total todos: %d", message.from_user.id, len(todos_list))
+        if total_todos == 0:
+            if message:
+                await message.answer("You don't have any todos yet. Use /todo to create one!")
+            return
+
+        # Calculate pagination
+        total_pages = (total_todos + items_per_page - 1) // items_per_page
+        if page > total_pages:
+            page = total_pages
+            offset = (page - 1) * items_per_page
+            
+        # Get only the todos for current page
+        todos = (Todo.select()
+                .where(Todo.user == user)
+                .order_by(Todo.due_date)
+                .limit(items_per_page)
+                .offset(offset))
+
+        # Delete old navigation message if this is a callback
+        if callback_query:
+            await callback_query.message.delete()
+            msg = callback_query.message
+        else:
+            msg = message
+            await msg.answer(f"Your todos (Page {page}/{total_pages}):")
+        
+        # Show todos
+        for todo in todos:
+            status_emoji = "✅" if todo.status == TodoStatus.DONE.value else "⭕️"
+            due_date = todo.due_date.strftime("%Y-%m-%d %H:%M")
+            todo_text = f"{status_emoji} {todo.text}\n"
+            todo_text += f"Due: {due_date}"
+            
+            keyboard = None
+            if todo.status != TodoStatus.DONE.value:
+                keyboard = InlineKeyboardMarkup(inline_keyboard=[[
+                    InlineKeyboardButton(
+                        text="✅ Mark as Done",
+                        callback_data=f"done_todo_{todo.id}"
+                    )
+                ]])
+            
+            await msg.answer(todo_text, reply_markup=keyboard)
+        
+        # Add separator
+        await msg.answer("-------------")
+        
+        # Add navigation buttons if needed
+        navigation_buttons = []
+        if page > 1:
+            navigation_buttons.append(
+                InlineKeyboardButton(
+                    text="⬅️ Previous",
+                    callback_data=f"get_todos {page-1}"
+                )
+            )
+        if page < total_pages:
+            navigation_buttons.append(
+                InlineKeyboardButton(
+                    text="Next ➡️",
+                    callback_data=f"get_todos {page+1}"
+                )
+            )
+            
+        if navigation_buttons:
+            navigation_keyboard = InlineKeyboardMarkup(inline_keyboard=[navigation_buttons])
+            await msg.answer("Navigate pages:", reply_markup=navigation_keyboard)
+            
+        if callback_query:
+            await callback_query.answer()
+            
+        logging.info("Sent todos list page %d to user %s. Showing todos %d-%d of %d", 
+                    page, user_id, offset + 1, 
+                    min(offset + items_per_page, total_todos), total_todos)
         
     except User.DoesNotExist:
-        logging.warning("User %s not found when requesting todos", message.from_user.id)
-        await message.answer("You don't have any todos yet. Use /todo to create one!")
+        error_msg = "You don't have any todos yet. Use /todo to create one!"
+        if callback_query:
+            logging.error("User %s not found for get_todos callback", user_id)
+            await callback_query.answer("Error: User not found!", show_alert=True)
+        else:
+            logging.warning("User %s not found when requesting todos", user_id)
+            await message.answer(error_msg)
+
+
+@dp.callback_query(F.data.startswith("done_todo_"))
+async def handle_done_todo_callback(callback_query):
+    """Handle callback when user marks a todo as done.
+    
+    Args:
+        callback_query: The callback query from the inline button
+        
+    Returns:
+        None
+    """
+    try:
+        # Extract todo ID from callback data
+        todo_id = int(callback_query.data.split("_")[-1])
+        
+        # Get todo and update status
+        todo = Todo.get_by_id(todo_id)
+        todo.status = TodoStatus.DONE.value
+        todo.save()
+        
+        # Update message text with done emoji
+        due_date = todo.due_date.strftime("%Y-%m-%d %H:%M")
+        updated_text = f"✅ {todo.text}\nDue: {due_date}"
+        
+        # Edit original message to remove keyboard and update text
+        await callback_query.message.edit_text(updated_text)
+        
+        # Answer callback query
+        await callback_query.answer("Todo marked as done!")
+        
+        logging.info("Todo %d marked as done by user %s", 
+                    todo_id, callback_query.from_user.id)
+                    
+    except Todo.DoesNotExist:
+        logging.error("Todo %s not found for done callback", todo_id)
+        await callback_query.answer("Error: Todo not found!", show_alert=True)
+    except Exception as e:
+        logging.error("Error handling done todo callback: %s", str(e))
+        await callback_query.answer("An error occurred", show_alert=True)
+
+
+@dp.callback_query(F.data.startswith("get_todos"))
+async def handle_get_todos_callback(callback_query):
+    """Handle callback for todo list navigation.
+    
+    Args:
+        callback_query: The callback query from the navigation buttons
+        
+    Returns:
+        None
+    """
+    try:
+        # Extract page number from callback data
+        page = int(callback_query.data.split()[-1])
+        await show_todos_page(callback_query.from_user.id, page, callback_query=callback_query)
+                    
+    except Exception as e:
+        logging.error("Error handling get_todos callback: %s", str(e))
+        await callback_query.answer("An error occurred", show_alert=True)
 
 
 @dp.message(F.text, Command("todo"))
