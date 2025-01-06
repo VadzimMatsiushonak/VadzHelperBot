@@ -19,9 +19,10 @@ async def init_bot() -> Bot:
     # Set menu commands
     commands = [
         BotCommand(command="/start", description="Start the bot"),
-        BotCommand(command="/help", description="Get help"),
+        BotCommand(command="/todo", description="Create a new todo"),
+        BotCommand(command="/get_todos", description="Get list of your todos"),
         BotCommand(command="/get_users", description="Get list of users"),
-        BotCommand(command="/post_users", description="Create new user")
+        # BotCommand(command="/post_users", description="Create new user")
     ]
     await bot.set_my_commands(commands)
     return bot

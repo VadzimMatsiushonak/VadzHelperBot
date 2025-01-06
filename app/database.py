@@ -1,5 +1,5 @@
 import logging
-from peewee import SqliteDatabase, Model, AutoField, CharField, TextField, DateTimeField, ForeignKeyField
+from peewee import SqliteDatabase, Model, AutoField, CharField, TextField, DateTimeField, ForeignKeyField, IntegerField
 from enum import Enum
 from config import DB_NAME  # Import database name from config
 
@@ -21,10 +21,16 @@ class TodoStatus(Enum):
     DECLINED = "declined"
 
 
+# Enum for Active Command
+class ActiveCommand(Enum):
+    TODO = "todo"
+
+
 # User Model
 class User(BaseModel):
-    id = AutoField()
-    username = CharField(unique=True)
+    id = IntegerField(primary_key=True)
+    username = CharField()
+    active_command = CharField(choices=[(cmd.value, cmd.value) for cmd in ActiveCommand], null=True)
 
 
 # Todo Model
@@ -39,5 +45,6 @@ class Todo(BaseModel):
 def init_db():
     """Initialize database and create tables."""
     db.connect()
-    db.create_tables([User, Todo])
+    db.drop_tables([User, Todo], safe=True)  # Drop existing tables for development environment
+    db.create_tables([User, Todo], safe=True) 
     logging.info("Database initialized")
