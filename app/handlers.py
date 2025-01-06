@@ -78,7 +78,7 @@ async def get_users(message: Message):
     logging.info("Sent users list to user %s. Total users: %d", message.from_user.id, len(users_list))
 
 
-@dp.message(F.text,Command("post_users"))
+@dp.message(F.text, Command("post_users"))
 async def post_users(message: Message, command: CommandObject) -> None:
     """Handles the `/post_users` command to create a new user.
     
@@ -104,3 +104,21 @@ async def post_users(message: Message, command: CommandObject) -> None:
     
     await message.answer(f"User {user.username} successfully posted!")
     logging.info("Sent success message for new user creation to user %s", message.from_user.id)
+
+
+
+@dp.message()
+async def handle_other_messages(message: Message) -> None:
+    """Handles any messages that don't match other handlers.
+    
+    Args:
+        message (Message): The unhandled message
+        
+    Returns:
+        None
+    """
+    logging.info("Received unhandled message from user %s", message.from_user.id)
+    await message.answer("Sorry, I don't understand that request. Please use one of the available commands:\n"
+                        "/start - Start the bot")
+    logging.info("Sent 'invalid request' message to user %s", message.from_user.id)
+
